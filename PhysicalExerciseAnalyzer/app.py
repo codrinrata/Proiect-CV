@@ -274,6 +274,7 @@ def detect_exercise_type(landmarks_dict):
             'Squat': 0
         }
         
+        # Pull-up detection
         if elbows_above_shoulders:
             scores['Pull-up'] += 4
         if hands_above_shoulders:
@@ -290,60 +291,119 @@ def detect_exercise_type(landmarks_dict):
         # Additional check: if feet are clearly off ground and body is vertical
         if avg_ankle_y < avg_knee_y + torso_height * 0.3:
             scores['Pull-up'] += 3
-        # Strong penalty only if BOTH vertical legs AND feet firmly on ground (standing)
+        
+        # PENALTIES for Pull-up:
+        # Horizontal body = NOT a pull-up (it's a push-up)
+        if is_horizontal:
+            scores['Pull-up'] -= 15
+        # Vertical legs with feet firmly on ground (standing)
         if lower_legs_vertical and feet_on_ground:
             scores['Pull-up'] -= 5
             
-        # Dip detection: vertical body, hands beside/below shoulders, arms supporting body, feet NOT firmly on ground
+        # Dip detection: vertical body, hands beside/below shoulders, arms supporting body, legs bent/tucked
         if not is_horizontal:
-            scores['Dip'] += 1
-        if not hands_above_shoulders and not hands_below_hips:
             scores['Dip'] += 2
+        
+        # Hands at or slightly below shoulder level (key dip position)
+        hands_at_shoulder_level = abs(avg_wrist_y - avg_shoulder_y) < torso_height * 0.4
+        if hands_at_shoulder_level and not hands_above_shoulders:
+            scores['Dip'] += 4
+        
+        # Hands beside torso (supporting body from sides)
         if hands_beside_torso:
+            scores['Dip'] += 4
+        
+        # Elbows beside body (not overhead like pull-up)
+        if elbows_beside_body and not elbows_above_shoulders:
             scores['Dip'] += 3
-        # Key difference from squat: feet should be raised/not on ground AND lower legs not vertical
-        if not feet_on_ground and avg_ankle_y < avg_hip_y + torso_height:
-            scores['Dip'] += 3
-        # Lower legs horizontal or bent perpendicular (90° at knee) = dip position
+        
+        # Lower legs horizontal or bent perpendicular (90° at knee) = dip position (legs tucked/crossed)
         if lower_legs_horizontal or legs_bent_perpendicular:
+            scores['Dip'] += 5
+        
+        # Feet raised or tucked (not standing firmly on ground like squat)
+        if not feet_on_ground or avg_ankle_y < avg_hip_y + torso_height * 0.5:
             scores['Dip'] += 3
-        if elbows_beside_body:
-            scores['Dip'] += 1
+        
+        # Strong penalty if lower legs are vertical (standing upright = squat, not dip)
+        if lower_legs_vertical and not legs_bent_perpendicular:
+            scores['Dip'] -= 8
             
-        # Push-up detection: horizontal body, hands on ground
+        # Push-up detection: horizontal body (plank position), hands on ground near shoulders
+        # CRITICAL: Horizontal body is THE defining feature of push-ups
         if is_horizontal:
-            scores['Push-up'] += 4
+            scores['Push-up'] += 8  # Strong bonus for horizontal
+        
+        # Hands near shoulder level (typical push-up hand position)
         if abs(avg_wrist_y - avg_shoulder_y) < torso_height * 0.3:
-            scores['Push-up'] += 2
-        if not feet_on_ground:
-            scores['Push-up'] += 1
-        # Push-ups can have horizontal lower legs (plank position)
+            scores['Push-up'] += 3
+        
+        # Legs extended behind (plank position)
         if lower_legs_horizontal:
-            scores['Push-up'] += 1
+            scores['Push-up'] += 3
+        
+        # Body in line (shoulders-hips-ankles aligned)
+        if abs(avg_shoulder_y - avg_hip_y) < torso_height * 0.3:
+            scores['Push-up'] += 2
+        
+        # Feet off ground or on toes (push-up position)
+        if not feet_on_ground or avg_ankle_y < avg_hip_y:
+            scores['Push-up'] += 2
+        
+        # PENALTIES for Push-up:
+        # Vertical body = NOT a push-up
+        if not is_horizontal:
+            scores['Push-up'] -= 10
+        # Hands above shoulders (pull-up position)
+        if hands_above_shoulders or elbows_above_shoulders:
+            scores['Push-up'] -= 8
+        # Vertical lower legs (standing/squat position)
+        if lower_legs_vertical:
+            scores['Push-up'] -= 6
             
         # Squat detection: standing upright, feet on ground, VERTICAL LOWER LEGS (key difference!)
-        if not is_horizontal:
-            scores['Squat'] += 1
+        # CRITICAL: Horizontal body = NOT a squat (it's a push-up or plank)
+        if is_horizontal:
+            scores['Squat'] -= 10  # Massive penalty for horizontal torso
+        else:
+            scores['Squat'] += 2  # Bonus for vertical torso
+        
         # CRITICAL: Squats require vertical lower legs (shins upright)
         if lower_legs_vertical and not legs_bent_perpendicular:
-            scores['Squat'] += 3  # Reduced from 4
+            scores['Squat'] += 4
+        
+        # Feet firmly on ground with ankles visible
         if feet_on_ground and feet_visible:
-            scores['Squat'] += 3
+            scores['Squat'] += 4
+        
+        # Hands in squat position (not supporting body from sides like dips)
         if not hands_above_shoulders and not hands_beside_torso:
-            scores['Squat'] += 2
+            scores['Squat'] += 3
+        
+        # Hands in typical squat range (between shoulders and knees)
         if avg_wrist_y > avg_shoulder_y and avg_wrist_y < avg_knee_y:
             scores['Squat'] += 2
+        
+        # Ankles below hips (standing position)
         if avg_ankle_y > avg_hip_y:
             scores['Squat'] += 1
-        # Penalize if legs are horizontal (perpendicular/parallel to ground)
+        
+        # PENALTIES for non-squat positions:
+        # Legs horizontal or tucked (dip position)
         if lower_legs_horizontal or legs_bent_perpendicular:
-            scores['Squat'] -= 5  # Strong penalty
-        # Strong penalty if hands are clearly above head (pull-up position)
+            scores['Squat'] -= 8
+        
+        # Hands beside torso supporting body (dip position)
+        if hands_beside_torso:
+            scores['Squat'] -= 6
+        
+        # Hands above head (pull-up position)
         if hands_above_shoulders or elbows_above_shoulders:
             scores['Squat'] -= 6
-        # Penalize if feet are clearly off the ground
+        
+        # Feet clearly off ground
         if not feet_on_ground:
-            scores['Squat'] -= 4
+            scores['Squat'] -= 5
             
         # Get best match
         max_score = max(scores.values())
@@ -352,12 +412,13 @@ def detect_exercise_type(landmarks_dict):
         
         detected = max(scores, key=scores.get)
         
-        # Generate confidence message
+        # Generate confidence message with all scores for debugging
+        all_scores = f"Pull-up:{scores['Pull-up']} | Dip:{scores['Dip']} | Push-up:{scores['Push-up']} | Squat:{scores['Squat']}"
         messages = {
-            'Pull-up': f"Hands above head, body hanging (score: {scores['Pull-up']})",
-            'Dip': f"Vertical body with hands supporting beside torso (score: {scores['Dip']})",
-            'Push-up': f"Horizontal body position (score: {scores['Push-up']})",
-            'Squat': f"Standing upright with feet on ground (score: {scores['Squat']})"
+            'Pull-up': f"Hands above head, body hanging ({all_scores})",
+            'Dip': f"Vertical body with hands supporting beside torso ({all_scores})",
+            'Push-up': f"Horizontal body position ({all_scores})",
+            'Squat': f"Standing upright with feet on ground ({all_scores})"
         }
         
         return detected, messages[detected]
@@ -584,7 +645,65 @@ with tab2:
             show_annotated = st.checkbox("Show annotated video", value=True)
         
         if st.button("🔍 Analyze Video", type="primary"):
-            # Initialize analyzer
+            # First pass: detect exercise type from first 30 frames
+            cap_detect = cv2.VideoCapture(video_path)
+            detected_exercise = None
+            detection_attempts = 0
+            max_detection_frames = 30
+            
+            st.info("🔍 Detecting exercise type...")
+            temp_detector = PoseDetector()
+            detected_exercises_sample = []
+            all_detection_messages = []
+            
+            while cap_detect.isOpened() and detection_attempts < max_detection_frames:
+                ret, frame = cap_detect.read()
+                if not ret:
+                    break
+                
+                landmarks, _ = temp_detector.detect_pose(frame)
+                if landmarks is not None:
+                    landmarks_dict = {}
+                    for name, idx in temp_detector.LANDMARK_NAMES.items():
+                        if idx < len(landmarks):
+                            lm = landmarks[idx]
+                            landmarks_dict[name] = {
+                                'x': lm.x,
+                                'y': lm.y,
+                                'z': lm.z,
+                                'visibility': lm.visibility if hasattr(lm, 'visibility') else 1.0
+                            }
+                    detected_ex, msg = detect_exercise_type(landmarks_dict)
+                    if detected_ex:
+                        detected_exercises_sample.append(detected_ex)
+                        if detection_attempts < 3:  # Save first 3 messages for debugging
+                            all_detection_messages.append(msg)
+                
+                detection_attempts += 1
+            
+            cap_detect.release()
+            
+            # Determine most common detected exercise
+            if detected_exercises_sample:
+                from collections import Counter
+                exercise_counts = Counter(detected_exercises_sample)
+                detected_exercise, count = exercise_counts.most_common(1)[0]
+                detection_confidence = (count / len(detected_exercises_sample)) * 100
+                
+                if detection_confidence > 40:
+                    st.success(f"✅ Detected exercise: **{detected_exercise}** ({detection_confidence:.0f}% confidence)")
+                    # Show sample detection scores for debugging
+                    if all_detection_messages:
+                        with st.expander("🔍 Detection Details (First 3 Frames)"):
+                            for i, msg in enumerate(all_detection_messages):
+                                st.text(f"Frame {i+1}: {msg}")
+                    exercise_type = detected_exercise
+                else:
+                    st.info(f"Using selected exercise: **{exercise_type}**")
+            else:
+                st.warning("Could not auto-detect exercise type. Using selected exercise.")
+            
+            # Initialize analyzer with detected/selected exercise
             analyzer = ExerciseAnalyzer(exercise_type=exercise_type.lower())
             
             # Process video
@@ -668,24 +787,6 @@ with tab2:
                 
                 if all_analyses:
                     st.success(f"✅ Analyzed {len(all_analyses)} frames successfully!")
-                    
-                    # Check detected exercise type
-                    if detected_exercises:
-                        from collections import Counter
-                        exercise_counts = Counter(detected_exercises)
-                        most_common_exercise, count = exercise_counts.most_common(1)[0]
-                        detection_percentage = (count / len(detected_exercises)) * 100
-                        
-                        if most_common_exercise != exercise_type and detection_percentage > 30:
-                            st.warning(f"""
-                                🤔 **Exercise Type Mismatch Detected!**
-                                
-                                You selected **{exercise_type}** but {detection_percentage:.0f}% of frames look like **{most_common_exercise}**.
-                                
-                                Consider changing the exercise type in the sidebar for more accurate analysis.
-                            """)
-                        else:
-                            st.info(f"✅ Exercise detection: {most_common_exercise.upper()} ({detection_percentage:.0f}% confidence)")
                     
                     # Calculate statistics
                     total_reps = max([a['rep_count'] for a in all_analyses]) if all_analyses else 0
